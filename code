@@ -1,0 +1,173 @@
+#Mounting Google Drive
+from google.colab import drive
+drive.mount('/content/drive')
+
+#unzipping the dataset file fer2013
+!tar -xf /content/drive/My\ Drive/Colab\ Notebooks/FER2013Dataset/fer2013.tar.gz
+
+import tensorflow as tf
+import keras
+from keras.models import Sequential
+from keras.layers import Conv2D, MaxPooling2D, AveragePooling2D
+from keras.layers import Dense, Activation, Dropout, Flatten
+from keras.preprocessing import image
+from keras.preprocessing.image import ImageDataGenerator
+import numpy as np
+import matplotlib.pyplot as plt
+
+#------------------------------
+config = tf.ConfigProto( device_count = {'GPU': 0 , 'CPU': 56} )
+sess = tf.Session(config=config)
+keras.backend.set_session(sess)
+#------------------------------
+
+
+num_classes = 7
+batch_size = 256
+epochs = 25
+
+#------------------------------
+with open("fer2013/fer2013.csv") as f:
+  content = f.readlines()
+
+lines = np.array(content)
+
+num_samples = lines.size
+
+#print("number of instances: ",num_samples)
+#print("instance length: ",len(lines[1].split(",")[1].split(" ")))
+
+x_train, y_train, x_test, y_test = [], [], [], []
+
+#------------------------------
+
+for i in range(1,num_samples):
+    try:
+        emotion, img_matrix, usage = lines[i].split(",")
+
+        image_val = img_matrix.split(" ")
+
+        pixels = np.array(image_val, 'float32')
+
+        # cnn_model also needs to know which emotion is NOT there
+        emotion = keras.utils.to_categorical(emotion, num_classes)
+
+        if 'Training' in usage:
+            y_train.append(emotion)
+            x_train.append(pixels)
+        elif 'PublicTest' in usage:
+            y_test.append(emotion)
+            x_test.append(pixels)
+    except:
+      print("", end="")
+
+#------------------------------
+#data transformation for train and test sets, why?
+x_train = np.array(x_train, 'float32')
+y_train = np.array(y_train, 'float32')
+x_test = np.array(x_test, 'float32')
+y_test = np.array(y_test, 'float32')
+
+x_train /= 255
+x_test /= 255
+
+x_train = x_train.reshape(x_train.shape[0], 48, 48, 1)
+x_train = x_train.astype('float32')
+x_test = x_test.reshape(x_test.shape[0], 48, 48, 1)
+x_test = x_test.astype('float32')
+
+#------------------------------
+
+cnn_model = Sequential()
+
+cnn_model.add(Conv2D(64, (5, 5), activation='relu', input_shape=(48,48,1)))
+cnn_model.add(MaxPooling2D(pool_size=(5,5), strides=(2, 2)))
+
+cnn_model.add(Conv2D(64, (3, 3), activation='relu'))
+cnn_model.add(Conv2D(64, (3, 3), activation='relu'))
+cnn_model.add(AveragePooling2D(pool_size=(3,3), strides=(2, 2)))
+
+cnn_model.add(Conv2D(128, (3, 3), activation='relu'))
+cnn_model.add(Conv2D(128, (3, 3), activation='relu'))
+cnn_model.add(AveragePooling2D(pool_size=(3,3), strides=(2, 2)))
+
+cnn_model.add(Flatten())
+
+cnn_model.add(Dense(1024, activation='relu'))
+cnn_model.add(Dropout(0.2))
+cnn_model.add(Dense(1024, activation='relu'))
+cnn_model.add(Dropout(0.2))
+
+cnn_model.add(Dense(num_classes, activation='softmax'))
+#------------------------------
+
+generator = ImageDataGenerator()
+train_generator = generator.flow(x_train, y_train, batch_size=batch_size)
+
+#------------------------------
+
+cnn_model.compile(loss='categorical_crossentropy'
+    , optimizer=keras.optimizers.Adam()
+    , metrics=['accuracy']
+)
+
+#------------------------------
+
+pretrain = False
+
+if pretrain == False:
+	#cnn_model.fit_generator(x_train, y_train, epochs=epochs) #train for all trainset
+	cnn_model.fit_generator(train_generator, steps_per_epoch=batch_size, epochs=epochs) #train for randomly selected one
+else:
+	new_model = tf.keras.models.load_model('saved_model.h5') #load weights
+
+#------------------------------
+"""
+#overall evaluation
+score = model.evaluate(x_test, y_test)
+print('Test loss:', score[0])
+print('Test accuracy:', 100*score[1])
+"""
+#------------------------------
+
+#Saving the model
+cnn_model.save('saved_model.h5')
+
+#Evaluation
+train_score = new_model.evaluate(x_train, y_train, verbose=0)
+print('Train Loss:', train_score[0])
+print('Train Accuracy:', 100*train_score[1])
+
+test_score = new_model.evaluate(x_test, y_test, verbose=0)
+print('Test Loss:', test_score[0])
+print('Test Accuracy:', 100*test_score[1])
+
+#making predictions
+predictions = new_model.predict(x_test)
+
+#Testing on any image
+from keras.preprocessing import image
+from keras.preprocessing.image import ImageDataGenerator
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+file = '/content/drive/My Drive/Colab Notebooks/test.jpg'
+#test_image = image.load_img(file)
+test_image = image.load_img(file, grayscale=True, target_size=(48, 48))
+
+image_transform = image.img_to_array(test_image)
+image_transform = np.expand_dims(image_transform, axis = 0)
+
+image_transform /= 255
+
+custom = new_model.predict(image_transform)
+emotion_analysis(custom[0])
+
+image_transform = np.array(image_transform, 'float32')
+image_transform = image_transform.reshape([48, 48]);
+
+plt.gray()
+plt.imshow(test_image)
+plt.show()
